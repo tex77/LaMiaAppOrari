@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foglio Presenze Modificabile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #presence-sheet-container {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            min-width: 800px;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 10px;
+            text-align: center;
+            white-space: nowrap;
+            position: relative;
+        }
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+        }
+        .name-cell {
+            text-align: left;
+            font-weight: 500;
+            background-color: #f8fafc;
+            position: sticky;
+            left: 0;
+            z-index: 10;
+        }
+        tr {
+            cursor: move;
+        }
+        .presence-cell {
+            min-width: 40px;
+            height: 40px;
+            cursor: pointer;
+        }
+        .presence-cell:focus {
+            outline: none;
+        }
+        .weekend {
+            background-color: #f1f5f9;
+        }
+        .dragging {
+            opacity: 0.5;
+            background: #e0f2fe;
+        }
+        .drag-over {
+            border-top: 2px solid #0284c7;
+        }
+        .presence-cell {
+            --top-color: transparent;
+            --bottom-color: transparent;
+            --line-color: #cbd5e1;
+            --full-bg-color: transparent;
+
+            background-color: var(--full-bg-color);
+            background-image:
+                linear-gradient(to bottom right, var(--top-color) 0%, var(--top-color) calc(50% - 1px), transparent calc(50% - 1px)),
+                linear-gradient(to bottom right, transparent calc(50% + 1px), var(--bottom-color) calc(50% + 1px), var(--bottom-color) 100%),
+                linear-gradient(to bottom right, transparent calc(50% - 0.5px), var(--line-color) calc(50% - 0.5px), var(--line-color) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+            background-repeat: no-repeat;
+        }
+        @media print {
+            body { background-color: #fff; }
+            header, #add-person-form { display: none; }
+            main { box-shadow: none; border: none; padding: 0; margin: 0; }
+            #print-title { display: block; text-align: center; font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem; }
+            #presence-sheet-container { overflow: visible; }
+            table { border: 1px solid #000; }
+            th, td { border: 1px solid #666; padding: 5px; }
+            .name-cell { position: static; }
+            tr { cursor: default; }
+            .presence-cell { print-color-adjust: exact; -webkit-print-color-adjust: exact; --line-color: #999; }
+            body.print-week-view table { min-width: 0; width: 100%; font-size: 14px; }
+            body.print-month-view { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            body.print-month-view table { min-width: 100%; font-size: 9px; @page { size: A4 landscape; } }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <header class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 mb-4">Foglio Presenze</h1>
+            <p class="text-slate-600 mb-6">Seleziona un mese e un anno, poi aggiungi i nomi per tracciare le presenze. Le modifiche vengono salvate automaticamente nel browser.</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label for="month-select" class="block text-sm font-medium text-slate-700 mb-1">Mese</label>
+                    <select id="month-select" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+                </div>
+                <div>
+                    <label for="year-select" class="block text-sm font-medium text-slate-700 mb-1">Anno</label>
+                    <select id="year-select" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+                </div>
+                 <div>
+                    <label for="week-select" class="block text-sm font-medium text-slate-700 mb-1">Settimana</label>
+                    <select id="week-select" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+                </div>
+            </div>
+             <div class="flex flex-wrap gap-4">
+                <button id="add-person-btn" class="flex-grow sm:flex-grow-0 bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition">
+                    Aggiungi Persona
+                </button>
+                <button id="print-btn" class="flex-grow sm:flex-grow-0 bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-opacity-75 transition">
+                    Stampa
+                </button>
+                <button id="save-file-btn" class="flex-grow sm:flex-grow-0 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition">
+                    Salva su File
+                </button>
+                <button id="load-file-btn" class="flex-grow sm:flex-grow-0 bg-amber-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-opacity-75 transition">
+                    Carica da File
+                </button>
+                 <button id="clear-data-btn" class="flex-grow sm:flex-grow-0 bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75 transition">
+                    Pulisci Mese
+                </button>
+                <input type="file" id="file-loader" class="hidden" accept=".json">
+            </div>
+            <div id="add-person-form" class="hidden mt-4 flex gap-4">
+                <input type="text" id="new-person-name" placeholder="Nome e Cognome" class="flex-grow p-2 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                <button id="save-person-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition">Salva</button>
+                <button id="cancel-add-btn" class="bg-red-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75 transition">Annulla</button>
+            </div>
+        </header>
+
+        <h2 id="print-title" class="hidden"></h2>
+
+        <main id="presence-sheet-container" class="bg-white rounded-xl shadow-md p-4">
+            <table id="presence-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const monthSelect = document.getElementById('month-select');
+            const yearSelect = document.getElementById('year-select');
+            const weekSelect = document.getElementById('week-select');
+            const tableHead = document.querySelector('#presence-table thead');
+            const tableBody = document.querySelector('#presence-table tbody');
+            const addPersonBtn = document.getElementById('add-person-btn');
+            const printBtn = document.getElementById('print-btn');
+            const printTitle = document.getElementById('print-title');
+            const addPersonForm = document.getElementById('add-person-form');
+            const newPersonNameInput = document.getElementById('new-person-name');
+            const savePersonBtn = document.getElementById('save-person-btn');
+            const cancelAddBtn = document.getElementById('cancel-add-btn');
+            const saveFileBtn = document.getElementById('save-file-btn');
+            const loadFileBtn = document.getElementById('load-file-btn');
+            const fileLoader = document.getElementById('file-loader');
+            const clearDataBtn = document.getElementById('clear-data-btn');
+
+            const monthNames = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
+            const dayNamesShort = ["D", "L", "M", "M", "G", "V", "S"];
+            
+            let people = []; 
+
+            function isNameDuplicate(name, personIdToExclude = null) {
+                const trimmedName = name.trim().toLowerCase();
+                return people.some(person => {
+                    if (person.id == personIdToExclude) {
+                        return false; 
+                    }
+                    return person.name.trim().toLowerCase() === trimmedName;
+                });
+            }
+
+            function saveState() {
+                const month = monthSelect.value;
+                const year = yearSelect.value;
+                const presencesKey = `presences_${year}_${month}`;
+                const presences = JSON.parse(localStorage.getItem(presencesKey) || '{}');
+
+                tableBody.querySelectorAll('tr').forEach(row => {
+                    const personId = row.dataset.personId;
+                    if (!personId) return;
+
+                    const daysInHeader = Array.from(tableHead.querySelectorAll('tr:first-child th')).slice(1).map(th => parseInt(th.textContent));
+                    
+                    row.querySelectorAll('.presence-cell').forEach((cell, index) => {
+                        const day = daysInHeader[index];
+                        if (!day) return;
+                        const cellId = `${personId}-${day}`;
+                        
+                        const topColor = cell.style.getPropertyValue('--top-color').trim();
+                        const bottomColor = cell.style.getPropertyValue('--bottom-color').trim();
+                        const fullBgColor = cell.style.getPropertyValue('--full-bg-color').trim();
+
+                        if (topColor || bottomColor || fullBgColor) {
+                             presences[cellId] = { top: topColor, bottom: bottomColor, full: fullBgColor };
+                        } else {
+                            delete presences[cellId];
+                        }
+                    });
+                });
+                
+                localStorage.setItem('peopleOrder', JSON.stringify(people));
+                localStorage.setItem(presencesKey, JSON.stringify(presences));
+            }
+
+            function loadState() {
+                const savedPeopleOrder = localStorage.getItem('peopleOrder');
+                
+                if (savedPeopleOrder) {
+                    let parsedPeople = JSON.parse(savedPeopleOrder);
+                    if (parsedPeople.length > 0 && typeof parsedPeople[0] === 'string') {
+                        people = parsedPeople.map(name => ({ id: Date.now() + Math.random(), name: name }));
+                    } else {
+                        people = parsedPeople;
+                    }
+                }
+
+                if (!people || people.length === 0) {
+                     const defaultPeopleNames = [
+                        "MARIANGELA", "ANTONELLA", "DARIA", "PAOLA", "MARINA", "ASIA", "SIRIA", "NATALIE", 
+                        "ALFONSO", "SARAH", "GIAMPIERO", "DOMENICO", "MICHELE", "GERMANO", "DANIELE", 
+                        "IHSS", "CHRISTIAN", "DOMENICO PIZ", "PIERO", "MATTIA", "CLAUDIO", "MICHELE C", 
+                        "DANIELE C", "TIBERIO", "MARCO"
+                    ];
+                    people = defaultPeopleNames.map(name => ({ id: Date.now() + Math.random(), name: name }));
+                }
+
+                const month = monthSelect.value;
+                const year = yearSelect.value;
+                const presencesKey = `presences_${year}_${month}`;
+                const savedPresences = JSON.parse(localStorage.getItem(presencesKey) || '{}');
+
+                tableBody.querySelectorAll('tr').forEach(row => {
+                    const personId = row.dataset.personId;
+                    if (!personId) return;
+
+                    const daysInHeader = Array.from(tableHead.querySelectorAll('tr:first-child th')).slice(1).map(th => parseInt(th.textContent));
+                    
+                    row.querySelectorAll('.presence-cell').forEach((cell, index) => {
+                        const day = daysInHeader[index];
+                        if (!day) return;
+                        const cellId = `${personId}-${day}`;
+                        const data = savedPresences[cellId];
+                        if (data) {
+                            cell.style.setProperty('--top-color', data.top || 'transparent');
+                            cell.style.setProperty('--bottom-color', data.bottom || 'transparent');
+                            cell.style.setProperty('--full-bg-color', data.full || 'transparent');
+                        } else {
+                            cell.style.setProperty('--top-color', 'transparent');
+                            cell.style.setProperty('--bottom-color', 'transparent');
+                            cell.style.setProperty('--full-bg-color', 'transparent');
+                        }
+                    });
+                });
+            }
+            
+            function saveToFile() {
+                const month = parseInt(monthSelect.value);
+                const year = parseInt(yearSelect.value);
+                const presencesKey = `presences_${year}_${month}`;
+
+                const dataToSave = {
+                    peopleOrder: people,
+                    presences: JSON.parse(localStorage.getItem(presencesKey) || '{}'),
+                    sourceMonth: month,
+                    sourceYear: year
+                };
+
+                const dataStr = JSON.stringify(dataToSave, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = url;
+                const monthName = monthNames[month];
+                link.download = `presenze_${monthName.toLowerCase()}_${year}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
+
+            function loadFromFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if (!data.peopleOrder || data.presences === undefined || data.sourceMonth === undefined || data.sourceYear === undefined) {
+                            alert('File non valido o corrotto.');
+                            return;
+                        }
+                        
+                        people = data.peopleOrder;
+                        localStorage.setItem('peopleOrder', JSON.stringify(people));
+
+                        const presencesKey = `presences_${data.sourceYear}_${data.sourceMonth}`;
+                        localStorage.setItem(presencesKey, JSON.stringify(data.presences));
+
+                        yearSelect.value = data.sourceYear;
+                        monthSelect.value = data.sourceMonth;
+
+                        updateDisplay();
+                        alert('Dati caricati con successo!');
+
+                    } catch (error) {
+                        alert('Errore durante la lettura del file.');
+                        console.error("Errore nel parsing del JSON:", error);
+                    }
+                };
+                reader.readAsText(file);
+                event.target.value = '';
+            }
+
+            function clearMonthData() {
+                const month = parseInt(monthSelect.value);
+                const year = parseInt(yearSelect.value);
+                const monthName = monthNames[month];
+                const confirmationWord = "CANCELLA";
+
+                const firstConfirm = prompt(`Sei sicuro di voler cancellare tutti i dati per ${monthName} ${year}? L'azione è irreversibile.\n\nPer confermare, scrivi "${confirmationWord}" qui sotto.`);
+
+                if (firstConfirm === confirmationWord) {
+                    const secondConfirm = prompt(`CONFERMA FINALE: Scrivi di nuovo "${confirmationWord}" per eliminare definitivamente i dati.`);
+                    
+                    if (secondConfirm === confirmationWord) {
+                        const presencesKey = `presences_${year}_${month}`;
+                        localStorage.removeItem(presencesKey);
+                        updateDisplay();
+                        alert(`Dati per ${monthName} ${year} cancellati.`);
+                    } else {
+                        alert("Seconda conferma non valida. Azione annullata.");
+                    }
+                } else if (firstConfirm !== null) {
+                    alert("Conferma non valida. Azione annullata.");
+                }
+            }
+
+            function setupControls() {
+                monthNames.forEach((month, index) => {
+                    monthSelect.innerHTML += `<option value="${index}">${month}</option>`;
+                });
+                const currentYear = new Date().getFullYear();
+                for (let i = currentYear - 5; i <= currentYear + 5; i++) {
+                    yearSelect.innerHTML += `<option value="${i}">${i}</option>`;
+                }
+                const savedMonth = localStorage.getItem('selectedMonth');
+                const savedYear = localStorage.getItem('selectedYear');
+                monthSelect.value = savedMonth ? savedMonth : new Date().getMonth();
+                yearSelect.value = savedYear ? savedYear : new Date().getFullYear();
+            }
+            
+            function populateWeekSelector(month, year) {
+                const savedWeek = localStorage.getItem('selectedWeek');
+                weekSelect.innerHTML = '<option value="all">Tutto il mese</option>';
+                let currentDay = new Date(year, month, 1);
+                while (currentDay.getDay() !== 1) { currentDay.setDate(currentDay.getDate() - 1); }
+                while (currentDay.getFullYear() < year || (currentDay.getFullYear() === year && currentDay.getMonth() <= month)) {
+                    const weekStart = new Date(currentDay);
+                    const weekEnd = new Date(weekStart);
+                    weekEnd.setDate(weekEnd.getDate() + 6);
+                    if (weekEnd.getFullYear() === year && weekEnd.getMonth() < month) { currentDay.setDate(currentDay.getDate() + 7); continue; }
+                    if (weekStart.getFullYear() === year && weekStart.getMonth() > month) { break; }
+                    const option = document.createElement('option');
+                    option.value = `${weekStart.getFullYear()}-${weekStart.getMonth()}-${weekStart.getDate()}`;
+                    option.textContent = `Sett. ${weekStart.getDate()} ${monthNames[weekStart.getMonth()].substring(0,3)} - ${end.getDate()} ${monthNames[end.getMonth()].substring(0,3)}`;
+                    weekSelect.appendChild(option);
+                    currentDay.setDate(currentDay.getDate() + 7);
+                }
+                if (Array.from(weekSelect.options).some(opt => opt.value === savedWeek)) { weekSelect.value = savedWeek; } else { weekSelect.value = 'all'; }
+            }
+
+            function generateSheet(month, year, week) {
+                tableHead.innerHTML = '';
+                tableBody.innerHTML = '';
+                let daysToDisplay = [];
+                if (week && week !== 'all') {
+                    document.body.classList.add('print-week-view');
+                    document.body.classList.remove('print-month-view');
+                    const [y, m, d] = week.split('-').map(Number);
+                    const weekStartDate = new Date(y, m, d);
+                    for (let i = 0; i < 7; i++) {
+                        const dayInWeek = new Date(weekStartDate);
+                        dayInWeek.setDate(dayInWeek.getDate() + i);
+                        daysToDisplay.push(dayInWeek);
+                    }
+                    const start = daysToDisplay[0];
+                    const end = daysToDisplay[6];
+                    printTitle.textContent = `Settimana: ${start.getDate()} ${monthNames[start.getMonth()]} - ${end.getDate()} ${monthNames[end.getMonth()]} ${year}`;
+                } else {
+                    document.body.classList.add('print-month-view');
+                    document.body.classList.remove('print-week-view');
+                    let endDay = new Date(year, month + 1, 0).getDate();
+                    for (let i = 1; i <= endDay; i++) {
+                        daysToDisplay.push(new Date(year, month, i));
+                    }
+                    printTitle.textContent = `${monthNames[month]} ${year}`;
+                }
+                let headerRow1 = '<tr><th class="name-cell">Nome</th>';
+                let headerRow2 = '<tr><th class="name-cell">&nbsp;</th>';
+                daysToDisplay.forEach(date => {
+                    const day = date.getDate();
+                    const dayOfWeek = date.getDay();
+                    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                    headerRow1 += `<th class="${isWeekend ? 'weekend' : ''}">${day}</th>`;
+                    headerRow2 += `<th class="${isWeekend ? 'weekend' : ''}">${dayNamesShort[dayOfWeek]}</th>`;
+                });
+                headerRow1 += '</tr>';
+                headerRow2 += '</tr>';
+                tableHead.innerHTML = headerRow1 + headerRow2;
+                people.forEach(person => addPersonRow(person, daysToDisplay));
+                loadState();
+            }
+            
+            function addPersonRow(person, daysToDisplay) {
+                let row = document.createElement('tr');
+                row.draggable = true;
+                row.dataset.personId = person.id;
+                
+                let nameCell = `<td class="name-cell" contenteditable="true">${person.name}</td>`;
+                let presenceCells = '';
+                daysToDisplay.forEach(date => {
+                     const isWeekend = (date.getDay() === 0 || date.getDay() === 6);
+                     presenceCells += `<td class="presence-cell ${isWeekend ? 'weekend' : ''}"></td>`;
+                });
+                row.innerHTML = nameCell + presenceCells;
+                tableBody.appendChild(row);
+            }
+
+            tableBody.addEventListener('click', function(e) {
+                if (!e.target.classList.contains('presence-cell')) return;
+                const cell = e.target;
+                let clicks = parseInt(cell.dataset.clicks || '0') + 1;
+                cell.dataset.clicks = clicks;
+                if (cell.clickTimer) clearTimeout(cell.clickTimer);
+                cell.clickTimer = setTimeout(() => {
+                    const clickCount = parseInt(cell.dataset.clicks || '0');
+                    const yellowColor = '#FACC15', purpleColor = '#A855F7', redColor = '#F87171', greenColor = '#4ADE80';
+                    if (clickCount === 1) {
+                        cell.style.setProperty('--full-bg-color', 'transparent');
+                        const rect = cell.getBoundingClientRect();
+                        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+                        if (y + (rect.height / rect.width) * x < rect.height) {
+                            const currentColor = cell.style.getPropertyValue('--top-color').trim();
+                            cell.style.setProperty('--top-color', (currentColor === 'transparent' || currentColor === '') ? yellowColor : 'transparent');
+                        } else { 
+                            const currentColor = cell.style.getPropertyValue('--bottom-color').trim();
+                            cell.style.setProperty('--bottom-color', (currentColor === 'transparent' || currentColor === '') ? purpleColor : 'transparent');
+                        }
+                    } else if (clickCount === 2) {
+                        cell.style.setProperty('--top-color', 'transparent');
+                        cell.style.setProperty('--bottom-color', 'transparent');
+                        const currentBg = cell.style.getPropertyValue('--full-bg-color').trim();
+                        cell.style.setProperty('--full-bg-color', currentBg === redColor ? 'transparent' : redColor);
+                    } else if (clickCount === 3) {
+                        cell.style.setProperty('--top-color', 'transparent');
+                        cell.style.setProperty('--bottom-color', 'transparent');
+                        const currentBg = cell.style.getPropertyValue('--full-bg-color').trim();
+                        cell.style.setProperty('--full-bg-color', currentBg === greenColor ? 'transparent' : greenColor);
+                    }
+                    cell.dataset.clicks = '0';
+                    saveState();
+                }, 250);
+            });
+            
+            // --- MODIFICATA LOGICA DI GESTIONE NOMI CON CANCELLAZIONE ---
+            let originalNameBeforeEdit = '';
+            tableBody.addEventListener('focusin', function(e) {
+                if (e.target.classList.contains('name-cell')) {
+                    originalNameBeforeEdit = e.target.innerText.trim();
+                }
+            });
+
+            tableBody.addEventListener('blur', function(e) {
+                if (e.target.classList.contains('name-cell')) {
+                    const cell = e.target;
+                    const newName = cell.innerText.trim();
+                    const personId = cell.closest('tr').dataset.personId;
+
+                    // NUOVA LOGICA: Se il nome viene cancellato, chiedi conferma per eliminare
+                    if (!newName) {
+                        const confirmation = confirm(`Sei sicuro di voler eliminare definitivamente "${originalNameBeforeEdit}" e tutti i suoi dati per questo mese?`);
+                        
+                        if (confirmation) {
+                            // Rimuovi la persona dall'array principale
+                            people = people.filter(p => p.id != personId);
+
+                            // Rimuovi i dati di presenza dal localStorage
+                            const month = monthSelect.value;
+                            const year = yearSelect.value;
+                            const presencesKey = `presences_${year}_${month}`;
+                            const presences = JSON.parse(localStorage.getItem(presencesKey) || '{}');
+                            Object.keys(presences).forEach(key => {
+                                if (key.startsWith(personId + '-')) {
+                                    delete presences[key];
+                                }
+                            });
+                            localStorage.setItem(presencesKey, JSON.stringify(presences));
+
+                            // Rimuovi la riga dalla tabella
+                            cell.closest('tr').remove();
+
+                            // Salva l'array 'people' aggiornato
+                            saveState();
+                        } else {
+                            // Se l'utente annulla, ripristina il nome originale
+                            cell.
