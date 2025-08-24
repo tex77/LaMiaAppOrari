@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foglio Presenze Modificabile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Stili per la tabella */
+        #presence-sheet-container {
+            overflow-x: auto; /* Abilita lo scroll orizzontale su schermi piccoli */
+        }
+        table {
+            width: 100%;
+            min-width: 800px; /* Larghezza minima per evitare che la tabella sia troppo compressa */
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 10px;
+            text-align: center;
+            white-space: nowrap;
+            position: relative;
+        }
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+        }
+        .name-cell {
+            text-align: left;
+            font-weight: 500;
+            background-color: #f8fafc;
+            position: sticky;
+            left: 0;
+            z-index: 10;
+        }
+        tr {
+            cursor: move; /* Cursore per indicare che le righe sono trascinabili */
+        }
+        .presence-cell {
+            min-width: 40px;
+            height: 40px;
+            cursor: pointer;
+        }
+        .presence-cell:focus {
+            outline: none;
+        }
+        .weekend {
+            background-color: #f1f5f9;
+        }
+        
+        /* Stili per il drag and drop */
+        .dragging {
+            opacity: 0.5;
+            background: #e0f2fe;
+        }
+        .drag-over {
+            border-top: 2px solid #0284c7;
+        }
+        
+        /* Stile per la colorazione dei triangoli e la linea diagonale */
+        .presence-cell {
+            --top-color: transparent;
+            --bottom-color: transparent;
+            --line-color: #cbd5e1;
+            --full-bg-color: transparent; /* Colore per doppio/triplo click */
+
+            background-color: var(--full-bg-color);
+            background-image:
+                /* Triangolo superiore (giallo) */
+                linear-gradient(to bottom right, var(--top-color) 0%, var(--top-color) calc(50% - 1px), transparent calc(50% - 1px)),
+                /* Triangolo inferiore (viola) */
+                linear-gradient(to bottom right, transparent calc(50% + 1px), var(--bottom-color) calc(50% + 1px), var(--bottom-color) 100%),
+                /* Linea divisoria */
+                linear-gradient(to bottom right, transparent calc(50% - 0.5px), var(--line-color) calc(50% - 0.5px), var(--line-color) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+            background-repeat: no-repeat;
+        }
+
+        /* Stili per la stampa */
+        @media print {
+            body {
+                background-color: #fff;
+            }
+            header, #add-person-form {
+                display: none;
+            }
+            main {
+                box-shadow: none;
+                border: none;
+                padding: 0;
+                margin: 0;
+            }
+            #print-title {
+                display: block; /* Mostra il titolo solo in stampa */
+                text-align: center;
+                font-size: 1.5rem;
+                font-weight: bold;
+                margin-bottom: 1rem;
+            }
+            #presence-sheet-container {
+                overflow: visible;
+            }
+            table {
+                border: 1px solid #000;
+            }
+            th, td {
+                border: 1px solid #666;
+                padding: 5px;
+            }
+            .name-cell {
+                position: static;
+            }
+            tr {
+                cursor: default;
+            }
+            .presence-cell {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+                 --line-color: #999;
+            }
+
+            /* Stili specifici per la vista settimanale in stampa */
+            body.print-week-view table {
+                min-width: 0;
+                width: 100%;
+                font-size: 14px; /* Testo più grande per la settimana */
+            }
+
+            /* Stili specifici per la vista mensile in stampa */
+             body.print-month-view {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            body.print-month-view table {
+                min-width: 100%;
+                font-size: 9px; /* Testo più piccolo per il mese */
+                 @page {
+                    size: A4 landscape; /* Imposta l'orientamento orizzontale */
+                }
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <!-- Intestazione e controlli -->
+        <header class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 mb-4">Foglio Presenze</h1>
+            <p class="text-slate-600 mb-6">Seleziona un mese e un anno, poi aggiungi i nomi per tracciare le presenze. Puoi riordinare i nomi trascinandoli.</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label for="month-select" class="block text-sm font-medium text-slate-700 mb-1">Mese</label>
+                    <select id="month-select" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+                </div>
+                <div>
+                    <label for="year-select" class="block text-sm font-medium text-slate-700 mb-1">Anno</label>
+                    <select id="year-select" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+                </div>
+                 <div>
+                    <label for="week-select" class="block text-sm font-medium text-slate-700 mb-1">Settimana</label>
+                    <select id="week-select" class="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+                </div>
+            </div>
+             <div class="flex flex-col sm:flex-row gap-4">
+                <button id="add-person-btn" class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition">
+                    Aggiungi Persona
+                </button>
+                <button id="print-btn" class="w-full sm:w-auto bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-opacity-75 transition">
+                    Stampa
+                </button>
+            </div>
+            <!-- Campo per aggiungere un nuovo nome (inizialmente nascosto) -->
+            <div id="add-person-form" class="hidden mt-4 flex gap-4">
+                <input type="text" id="new-person-name" placeholder="Nome e Cognome" class="flex-grow p-2 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                <button id="save-person-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition">Salva</button>
+                <button id="cancel-add-btn" class="bg-red-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75 transition">Annulla</button>
+            </div>
+        </header>
+
+        <!-- Titolo per la stampa (nascosto di default) -->
+        <h2 id="print-title" class="hidden"></h2>
+
+        <!-- Contenitore per la tabella presenze -->
+        <main id="presence-sheet-container" class="bg-white rounded-xl shadow-md p-4">
+            <table id="presence-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </main>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const monthSelect = document.getElementById('month-select');
+            const yearSelect = document.getElementById('year-select');
+            const weekSelect = document.getElementById('week-select');
+            const tableHead = document.querySelector('#presence-table thead');
+            const tableBody = document.querySelector('#presence-table tbody');
+            const addPersonBtn = document.getElementById('add-person-btn');
+            const printBtn = document.getElementById('print-btn');
+            const printTitle = document.getElementById('print-title');
+            
+            const addPersonForm = document.getElementById('add-person-form');
+            const newPersonNameInput = document.getElementById('new-person-name');
+            const savePersonBtn = document.getElementById('save-person-btn');
+            const cancelAddBtn = document.getElementById('cancel-add-btn');
+
+            const monthNames = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
+            const dayNamesShort = ["D", "L", "M", "M", "G", "V", "S"];
+            
+            let people = [
+                "MARIANGELA", "ANTONELLA", "DARIA", "PAOLA", "MARINA", "ASIA", "SIRIA", "NATALIE", 
+                "ALFONSO", "SARAH", "GIAMPIERO", "DOMENICO", "MICHELE", "GERMANO", "DANIELE", 
+                "IHSS", "CHRISTIAN", "DOMENICO PIZ", "PIERO", "MATTIA", "CLAUDIO", "MICHELE", 
+                "DANIELE", "TIBERIO", "MARCO"
+            ];
+
+            function setupControls() {
+                monthNames.forEach((month, index) => {
+                    monthSelect.innerHTML += `<option value="${index}">${month}</option>`;
+                });
+                const currentYear = new Date().getFullYear();
+                for (let i = currentYear - 5; i <= currentYear + 5; i++) {
+                    yearSelect.innerHTML += `<option value="${i}">${i}</option>`;
+                }
+                monthSelect.value = 8;
+                yearSelect.value = 2025;
+            }
+            
+            function populateWeekSelector(month, year) {
+                const savedWeek = weekSelect.value;
+                weekSelect.innerHTML = '<option value="all">Tutto il mese</option>';
+                let currentDay = new Date(year, month, 1);
+
+                while (currentDay.getDay() !== 1) {
+                    currentDay.setDate(currentDay.getDate() - 1);
+                }
+
+                while (currentDay.getMonth() <= month || (currentDay.getMonth() === 11 && month === 0)) {
+                    const weekStart = new Date(currentDay);
+                     if (weekStart.getFullYear() > year) break;
+                     if (weekStart.getFullYear() === year && weekStart.getMonth() > month) break;
+
+                    const weekEnd = new Date(weekStart);
+                    weekEnd.setDate(weekEnd.getDate() + 6);
+
+                    if (weekStart.getMonth() > month && weekStart.getFullYear() >= year) break;
+                    if (weekEnd.getMonth() < month && weekEnd.getFullYear() <= year && weekStart.getMonth() < month) {
+                         currentDay.setDate(currentDay.getDate() + 7);
+                         continue;
+                    }
+
+                    const startDay = weekStart.getDate();
+                    const startMonth = monthNames[weekStart.getMonth()].substring(0, 3);
+                    const endDay = weekEnd.getDate();
+                    const endMonth = monthNames[weekEnd.getMonth()].substring(0, 3);
+
+                    const option = document.createElement('option');
+                    option.value = `${weekStart.getFullYear()}-${weekStart.getMonth() + 1}-${weekStart.getDate()}`;
+                    option.textContent = `${startDay} ${startMonth} - ${endDay} ${endMonth}`;
+                    weekSelect.appendChild(option);
+
+                    currentDay.setDate(currentDay.getDate() + 7);
+                }
+                if (Array.from(weekSelect.options).some(opt => opt.value === savedWeek)) {
+                    weekSelect.value = savedWeek;
+                }
+            }
+
+
+            function generateSheet(month, year, week) {
+                tableHead.innerHTML = '';
+                tableBody.innerHTML = '';
+                
+                let daysToDisplay = [];
+
+                if (week && week !== 'all') {
+                    document.body.classList.add('print-week-view');
+                    document.body.classList.remove('print-month-view');
+                    const weekStartDate = new Date(week);
+                    for (let i = 0; i < 7; i++) {
+                        const dayInWeek = new Date(weekStartDate);
+                        dayInWeek.setDate(dayInWeek.getDate() + i);
+                        daysToDisplay.push(dayInWeek);
+                    }
+                    const start = daysToDisplay[0];
+                    const end = daysToDisplay[6];
+                    printTitle.textContent = `Settimana: ${start.getDate()} ${monthNames[start.getMonth()]} - ${end.getDate()} ${monthNames[end.getMonth()]} ${year}`;
+
+                } else {
+                    document.body.classList.add('print-month-view');
+                    document.body.classList.remove('print-week-view');
+                    let endDay = new Date(year, month + 1, 0).getDate();
+                    for (let i = 1; i <= endDay; i++) {
+                        daysToDisplay.push(new Date(year, month, i));
+                    }
+                    printTitle.textContent = `${monthNames[month]} ${year}`;
+                }
+
+                let headerRow1 = '<tr><th class="name-cell">Nome</th>';
+                let headerRow2 = '<tr><th class="name-cell">&nbsp;</th>';
+
+                daysToDisplay.forEach(date => {
+                    const day = date.getDate();
+                    const dayOfWeek = date.getDay();
+                    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                    headerRow1 += `<th class="${isWeekend ? 'weekend' : ''}">${day}</th>`;
+                    headerRow2 += `<th class="${isWeekend ? 'weekend' : ''}">${dayNamesShort[dayOfWeek]}</th>`;
+                });
+
+                headerRow1 += '</tr>';
+                headerRow2 += '</tr>';
+                tableHead.innerHTML = headerRow1 + headerRow2;
+                
+                people.forEach(person => addPersonRow(person, daysToDisplay));
+            }
+            
+            function addPersonRow(name, daysToDisplay) {
+                let row = document.createElement('tr');
+                row.draggable = true;
+                let nameCell = `<td class="name-cell" contenteditable="true">${name}</td>`;
+                let presenceCells = '';
+                
+                daysToDisplay.forEach(date => {
+                     const dayOfWeek = date.getDay();
+                     const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                     presenceCells += `<td class="presence-cell ${isWeekend ? 'weekend' : ''}"></td>`;
+                });
+
+                row.innerHTML = nameCell + presenceCells;
+                tableBody.appendChild(row);
+            }
+
+            // Event listener per la colorazione delle celle
+            tableBody.addEventListener('click', function(e) {
+                if (!e.target.classList.contains('presence-cell')) return;
+                const cell = e.target;
+
+                let clicks = parseInt(cell.dataset.clicks || '0') + 1;
+                cell.dataset.clicks = clicks;
+
+                if (cell.clickTimer) clearTimeout(cell.clickTimer);
+
+                cell.clickTimer = setTimeout(() => {
+                    const clickCount = parseInt(cell.dataset.clicks || '0');
+                    const yellowColor = '#FACC15';
+                    const purpleColor = '#A855F7';
+                    const redColor = '#F87171';
+                    const greenColor = '#4ADE80';
+
+                    if (clickCount === 1) {
+                        cell.style.setProperty('--full-bg-color', 'transparent');
+                        const rect = cell.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const y = e.clientY - rect.top;
+                        
+                        if (y + (rect.height / rect.width) * x < rect.height) {
+                            const currentColor = cell.style.getPropertyValue('--top-color').trim();
+                            cell.style.setProperty('--top-color', (currentColor === 'transparent' || currentColor === '') ? yellowColor : 'transparent');
+                        } else { 
+                            const currentColor = cell.style.getPropertyValue('--bottom-color').trim();
+                            cell.style.setProperty('--bottom-color', (currentColor === 'transparent' || currentColor === '') ? purpleColor : 'transparent');
+                        }
+                    } else if (clickCount === 2) {
+                        cell.style.setProperty('--top-color', 'transparent');
+                        cell.style.setProperty('--bottom-color', 'transparent');
+                        const currentBg = cell.style.getPropertyValue('--full-bg-color').trim();
+                        cell.style.setProperty('--full-bg-color', currentBg === redColor ? 'transparent' : redColor);
+                    } else if (clickCount === 3) {
+                        cell.style.setProperty('--top-color', 'transparent');
+                        cell.style.setProperty('--bottom-color', 'transparent');
+                        const currentBg = cell.style.getPropertyValue('--full-bg-color').trim();
+                        cell.style.setProperty('--full-bg-color', currentBg === greenColor ? 'transparent' : greenColor);
+                    }
+                    cell.dataset.clicks = '0';
+                }, 250);
+            });
+            
+            // Gestione Drag and Drop
+            let draggedRow = null;
+
+            tableBody.addEventListener('dragstart', e => {
+                draggedRow = e.target;
+                setTimeout(() => {
+                    e.target.classList.add('dragging');
+                }, 0);
+            });
+
+            tableBody.addEventListener('dragend', e => {
+                e.target.classList.remove('dragging');
+                
+                const newPeopleOrder = [];
+                tableBody.querySelectorAll('tr').forEach(row => {
+                    newPeopleOrder.push(row.querySelector('.name-cell').innerText);
+                });
+                people = newPeopleOrder;
+            });
+
+            tableBody.addEventListener('dragover', e => {
+                e.preventDefault();
+                const targetRow = e.target.closest('tr');
+                if (targetRow && targetRow !== draggedRow) {
+                    tableBody.querySelectorAll('.drag-over').forEach(row => row.classList.remove('drag-over'));
+                    targetRow.classList.add('drag-over');
+                }
+            });
+
+            tableBody.addEventListener('dragleave', e => {
+                 const targetRow = e.target.closest('tr');
+                 if(targetRow) {
+                    targetRow.classList.remove('drag-over');
+                 }
+            });
+
+            tableBody.addEventListener('drop', e => {
+                e.preventDefault();
+                const targetRow = e.target.closest('tr');
+                if (targetRow && targetRow !== draggedRow) {
+                    const allRows = [...tableBody.querySelectorAll('tr')];
+                    const draggedIndex = allRows.indexOf(draggedRow);
+                    const targetIndex = allRows.indexOf(targetRow);
+
+                    if (draggedIndex > targetIndex) {
+                        tableBody.insertBefore(draggedRow, targetRow);
+                    } else {
+                        tableBody.insertBefore(draggedRow, targetRow.nextSibling);
+                    }
+                }
+                tableBody.querySelectorAll('.drag-over').forEach(row => row.classList.remove('drag-over'));
+            });
+
+            addPersonBtn.addEventListener('click', () => {
+                addPersonForm.classList.remove('hidden');
+                newPersonNameInput.focus();
+            });
+
+            cancelAddBtn.addEventListener('click', () => {
+                addPersonForm.classList.add('hidden');
+                newPersonNameInput.value = '';
+            });
+
+            savePersonBtn.addEventListener('click', () => {
+                const newName = newPersonNameInput.value;
+                if (newName && newName.trim() !== "") {
+                    people.push(newName.trim());
+                    updateDisplay(); // Ridisegna la tabella con il nuovo nome
+                    newPersonNameInput.value = '';
+                    addPersonForm.classList.add('hidden');
+                }
+            });
+
+            printBtn.addEventListener('click', () => {
+                window.print();
+            });
+
+            function updateDisplay() {
+                const month = parseInt(monthSelect.value);
+                const year = parseInt(yearSelect.value);
+                populateWeekSelector(month, year);
+                const week = weekSelect.value;
+                generateSheet(month, year, week);
+            }
+
+            monthSelect.addEventListener('change', () => {
+                weekSelect.value = 'all'; // Se cambio mese, resetto a "tutto il mese"
+                updateDisplay();
+            });
+            yearSelect.addEventListener('change', () => {
+                 weekSelect.value = 'all'; // Se cambio anno, resetto a "tutto il mese"
+                updateDisplay();
+            });
+            weekSelect.addEventListener('change', updateDisplay);
+
+            // Inizializzazione
+            setupControls();
+            updateDisplay();
+        });
+    </script>
+
+</body>
+</html>
